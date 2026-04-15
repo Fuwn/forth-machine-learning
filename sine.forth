@@ -178,3 +178,4 @@ CREATE hidden-deltas hidden-count FLOATS ALLOT
 initialize-weights
 50000 train
 print-results
+bye
