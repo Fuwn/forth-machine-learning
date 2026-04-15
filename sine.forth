@@ -20,7 +20,7 @@ FVARIABLE output-activation
 FVARIABLE network-input
 FVARIABLE target-output
 
-FVARIABLE output-delta
+\ Stores lr*d_h_i pre-scaled; weight update pass needs no further lr multiply.
 CREATE hidden-deltas hidden-count FLOATS ALLOT
 
 : float-ref  ( addr n -- ) ( f: -- x )   FLOATS + F@ ;
@@ -61,40 +61,41 @@ CREATE hidden-deltas hidden-count FLOATS ALLOT
 
   0.0e0 output-bias F! ;
 
-: compute-hidden-activation ( n -- )
+: compute-hidden-activation ( n -- n ) ( f: -- h_i )
   DUP
   input-to-hidden-weights OVER float-ref network-input F@ F*
   hidden-biases ROT float-ref F+
-  FTANH
-  hidden-activations SWAP float-set ;
+  FTANH ;
 
 : forward-pass
   0.0e0
   hidden-count 0 DO
-    I compute-hidden-activation
-    hidden-to-output-weights I float-ref
-    hidden-activations I float-ref F*
+    I compute-hidden-activation                \ data=[I], f=[acc, h_I]
+    FDUP hidden-activations OVER float-set     \ store h_I, keep live; data=[I]
+    hidden-to-output-weights I float-ref F*
     F+
+    DROP
   LOOP
   output-bias F@ F+
   FTANH
   output-activation F! ;
 
-: backward-pass
-  target-output F@ output-activation F@ F-
-  output-activation F@ tanh-derivative F*
-  FDUP output-delta F!                        \ f: [d_o]
+\ Single-pass: eliminates output-delta variable; Pass 1 pre-scales by lr
+\ so Pass 3 needs no further multiply.
+: backpropagate
+  output-activation F@
+  FDUP tanh-derivative                         \ f: [output, tanh'(output)]
+  target-output F@ FROT F- F*                 \ f: [d_o]
+  learning-rate F*                             \ f: [lr*d_o]
 
+  \ Pass 1: compute and store lr*d_h_i using original output weights
   hidden-count 0 DO
     FDUP hidden-to-output-weights I float-ref F*
     hidden-activations I float-ref tanh-derivative F*
     hidden-deltas I float-set
   LOOP
-  FDROP ;
 
-: update-weights
-  learning-rate output-delta F@ F*            \ f: [lr*d_o]
-
+  \ Pass 2: update output weights; reuse lr*d_o via FOVER
   hidden-count 0 DO
     hidden-to-output-weights I float-ref
     FOVER hidden-activations I float-ref F* F+
@@ -105,8 +106,9 @@ CREATE hidden-deltas hidden-count FLOATS ALLOT
   output-bias F!
   FDROP
 
+  \ Pass 3: update hidden weights; lr*d_h_i already scaled in hidden-deltas
   hidden-count 0 DO
-    learning-rate hidden-deltas I float-ref F*  \ f: [lr*d_h_i]
+    hidden-deltas I float-ref                  \ f: [lr*d_h_i]
 
     input-to-hidden-weights I float-ref
     FOVER network-input F@ F* F+
@@ -118,13 +120,12 @@ CREATE hidden-deltas hidden-count FLOATS ALLOT
   LOOP ;
 
 : train-epoch
-  0.0e0                                       \ f: [x = 0.0]
+  0.0e0                                        \ f: [x = 0.0]
   sample-count 0 DO
     FDUP network-input F!
     FDUP FSIN target-output F!
     forward-pass
-    backward-pass
-    update-weights
+    backpropagate
     training-step F+
   LOOP
   FDROP ;
@@ -135,8 +136,8 @@ CREATE hidden-deltas hidden-count FLOATS ALLOT
   output-activation F@ ;
 
 : mean-squared-error ( f: -- f: mse )
-  0.0e0                                       \ f: [acc]
-  0.0e0                                       \ f: [acc, x]
+  0.0e0                                        \ f: [acc]
+  0.0e0                                        \ f: [acc, x]
   sample-count 0 DO
     FDUP FDUP FSIN target-output F!
     network-input F!
@@ -158,8 +159,8 @@ CREATE hidden-deltas hidden-count FLOATS ALLOT
   LOOP ;
 
 : print-at ( f: x -- )
-  FDUP FSIN                                   \ f: [x, sin(x)]
-  FOVER predict                               \ f: [x, sin(x), pred]
+  FDUP FSIN                                    \ f: [x, sin(x)]
+  FOVER predict                                \ f: [x, sin(x), pred]
   ." x=" FROT F.
   ."   actual=" FSWAP F.
   ."   predicted=" F. cr ;
