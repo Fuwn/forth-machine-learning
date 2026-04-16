@@ -46,3 +46,30 @@ x=3.92699   actual=-0.707107   predicted=-0.720338
 x=4.71239   actual=-1.00000   predicted=-0.960779
 x=5.49779   actual=-0.707107   predicted=-0.727600
 ```
+
+### Sine Wave Regression (GPU, `sine-gpu.forth`)
+
+Same 1-8-1 architecture rewritten to use the `poem-gpu` tensor extension. Training
+is batched: all 20 samples are processed in a single forward/backward pass per epoch,
+eliminating per-sample kernel dispatch overhead. Each intermediate tensor is explicitly
+freed after use to keep the tensor pool bounded.
+
+Requires `libpoem_gpu.dylib` built from `crates/poem-gpu` with `--features metal`.
+
+```
+$ poemk < sine-gpu.forth
+epoch   5000  mse 0.020409
+epoch  10000  mse 0.001747
+...
+epoch  50000  mse 0.000327
+
+sin(x) approximation
+x=0.00000   actual=0.00000   predicted=-0.002274
+x=0.785398   actual=0.707107   predicted=0.705712
+x=1.57080   actual=1.00000   predicted=0.960462
+x=2.35619   actual=0.707107   predicted=0.736300
+x=3.14159   actual=0.000000   predicted=-0.012557
+x=3.92699   actual=-0.707107   predicted=-0.719288
+x=4.71239   actual=-1.00000   predicted=-0.961066
+x=5.49779   actual=-0.707107   predicted=-0.726103
+```
